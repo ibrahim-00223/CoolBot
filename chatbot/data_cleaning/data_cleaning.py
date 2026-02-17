@@ -4,7 +4,7 @@ import glob
 from pathlib import Path
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_chroma import Chroma
+from langchain_community.vectorstores import FAISS
 from langchain_mistralai import MistralAIEmbeddings, ChatMistralAI
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
@@ -57,30 +57,21 @@ embeddings = MistralAIEmbeddings(
     mistral_api_key=Mistral_API_KEY
     )
 persist_directory = "./chroma_db"
-vector_store = Chroma.from_documents(
+
+# Créer la base FAISS
+vector_store = FAISS.from_documents(
     documents=chunks,
-    embedding=embeddings,
-    persist_directory=persist_directory,
-    collection_name="Chatbot_DataBase" #Name of Collection
+    embedding=embeddings
 )
-query = "Je suis sur 30WG et j'aimerai savoir que signifie l'alarme 15001 et quelle est la cause éventuelle ?"
-results = vector_store.similarity_search(query, k=3)
+
+# Sauvegarder localement
+vector_store.save_local("faiss_index")
+print("Base vectorielle FAISS créée.")
+
+# STEP 4 : Charger et utiliser
+# vector_store = FAISS.load_local("faiss_index", embeddings)
 
 retriever = vector_store.as_retriever(
-    search_type="similarity",  # ou "mmr"
+    search_type="similarity",
     search_kwargs={"k": 5}
 )
-
-# Retriever : 
-docs = retriever.invoke("Je suis sur un 30WG et j'aimerai savoir que signifie l'alarme 15001 ?")
-
-# Avec filtres
-retriever = vector_store.as_retriever(
-    search_type="similarity_score_threshold",
-    search_kwargs={
-        "k": 10,
-        "score_threshold": 0.5  # Seuil minimum
-    }
-)
-
-print(retriever)
