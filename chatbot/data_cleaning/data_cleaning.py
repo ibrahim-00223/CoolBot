@@ -1,6 +1,5 @@
 from dotenv import load_dotenv
 import os
-import glob
 from pathlib import Path
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -10,68 +9,71 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.prompts import PromptTemplate
 
-
+# Set-up : Get llm's api_key with virtuel environnement 
 load_dotenv()
 
-# STEP 1 : 
 
-files_path="./sources"
-    # Get all files in Folder "Sources" : 
-all_files = []
-pdf_files = list(Path(files_path).glob("*.pdf"))
-print(f"🔍 Nombre de PDFs trouvés dans le dossier : {len(pdf_files)}")
-# Load pdf documents from the folder :
-for pdf_file in pdf_files:
-    try:
-        loader = PyPDFLoader(str(pdf_file))
-        all_files.append(loader)
-        print(f"1 pdf ajouté : {pdf_file.name}")
-    except Exception as error:
-        print(f"Erreur avec {pdf_file.name}: {error}")
+# STEP 1 : Chargement des PDFs
+def load_pdfs(files_path="./sources"):
+    pdf_files = list(Path(files_path).glob("*.pdf"))
+    print(f"🔍 Nombre de PDFs trouvés : {len(pdf_files)}")
 
-    # Retrieve all files that have been uploaded :
     documents_loaded = []
-    for loader in all_files:
-        documents_loaded.extend(loader.load())
-    print(f"{len(documents_loaded)} pages chargées. {len(all_files)} PDFs traités.")
+    loaded_count = 0
 
-# STEP 2 : 
+    for pdf_file in pdf_files:
+        try:
+            loader = PyPDFLoader(str(pdf_file))
+            documents_loaded.extend(loader.load())
+            loaded_count += 1
+            print(f"✅ PDF ajouté : {pdf_file.name}")
+        except Exception as error:
+            print(f"❌ Erreur avec {pdf_file.name}: {error}")
 
-text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1000,        # Taille de chaque chunk (en caractères)
-        chunk_overlap=200,      # Chevauchement entre chunks
-        length_function=len,    # Comment mesurer la longueur
+    print(f"{len(documents_loaded)} pages chargées. {loaded_count} PDFs traités.")
+    return documents_loaded
+
+
+# STEP 2 : Découpage en chunks
+def split_documents(documents, chunk_size=1000, chunk_overlap=200):
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        length_function=len,
         add_start_index=True,
-        separators=["\n\n", "\n", ". ", " ", ""]  # Où couper en priorité
-)
-
-chunks = text_splitter.split_documents(documents_loaded)
-print(f"Nombre total de chunks : {len(chunks)}.")
-
-# STEP 3 : 
-
-# Retrive Mistral_API_KEY :
-Mistral_API_KEY = os.getenv("MISTRAL_API_KEY")
-embeddings = MistralAIEmbeddings(
-    model="mistral-embed",
-    mistral_api_key=Mistral_API_KEY
+        separators=["\n\n", "\n", ". ", " ", ""]
     )
-persist_directory = "./chroma_db"
 
-# Créer la base FAISS
-vector_store = FAISS.from_documents(
-    documents=chunks,
-    embedding=embeddings
-)
+    chunks = text_splitter.split_documents(documents)
+    print(f"Nombre total de chunks : {len(chunks)}.")
+    return chunks
 
-# Sauvegarder localement
-vector_store.save_local("faiss_index")
-print("Base vectorielle FAISS créée.")
 
-# STEP 4 : Charger et utiliser
-# vector_store = FAISS.load_local("faiss_index", embeddings)
+# STEP 3 : Création de la base vectorielle
+def create_vector_store(chunks, api_key, save_path="faiss_index"):
+    embeddings = MistralAIEmbeddings(
+        model="mistral-embed",
+        mistral_api_key=api_key
+    )
 
-retriever = vector_store.as_retriever(
-    search_type="similarity",
-    search_kwargs={"k": 5}
-)
+    vector_store = FAISS.from_documents(documents=chunks, embedding=embeddings)
+    vector_store.save_local(save_path)
+    print("✅ Base vectorielle FAISS créée et sauvegardée.")
+    return vector_store
+
+
+# Orchestration : 
+def main():
+    mistral_api_key = os.getenv("MISTRAL_API_KEY")
+
+    documents = load_pdfs("./sources")
+    chunks = split_documents(documents)
+    vector_store = create_vector_store(chunks, mistral_api_key)
+
+    retriever = vector_store.as_retriever(
+        search_type="similarity",
+        search_kwargs={"k": 5}
+    )
+
+if __name__ == "__main__":
+    main()
